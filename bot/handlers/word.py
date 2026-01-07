@@ -5,7 +5,7 @@ import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InputFile
 from aiogram.filters import Command
-from bot.services.dictionary import generate_word_card
+from bot.services.ai import generate_word_card
 from bot.services.srs import create_review
 from bot.db.models import add_word, word_exists, get_word, update_word
 from bot.keyboards.inline import (
