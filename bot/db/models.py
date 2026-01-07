@@ -23,6 +23,8 @@ class Word:
     @classmethod
     def from_row(cls, row) -> "Word":
         """Создать Word из строки БД"""
+        # sqlite3.Row не имеет метода .get(), используем проверку через in
+        frequency = row["frequency"] if "frequency" in row.keys() else 1
         return cls(
             id=row["id"],
             user_id=row["user_id"],
@@ -33,7 +35,7 @@ class Word:
             translations_ru=json.loads(row["translations_ru"] or "[]"),
             definition_en=row["definition_en"],
             examples=json.loads(row["examples"] or "[]"),
-            frequency=row.get("frequency", 1),
+            frequency=frequency,
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now()
         )
 
@@ -238,6 +240,44 @@ async def get_random_user_words(user_id: int, limit: int, exclude_word_id: Optio
         
         rows = await cursor.fetchall()
         return [Word.from_row(row) for row in rows]
+    finally:
+        await db.close()
+
+
+async def delete_word(word_id: int, user_id: int) -> bool:
+    """Удалить слово (проверяет, что оно принадлежит пользователю)"""
+    db = await get_db()
+    
+    try:
+        cursor = await db.execute("""
+            DELETE FROM words 
+            WHERE id = ? AND user_id = ?
+        """, (word_id, user_id))
+        
+        deleted = cursor.rowcount > 0
+        await db.commit()
+        return deleted
+    finally:
+        await db.close()
+
+
+async def mark_word_as_learned(word_id: int, user_id: int):
+    """Отметить слово как изученное (устанавливает большое время до следующего повторения)"""
+    from datetime import datetime, timedelta
+    
+    db = await get_db()
+    
+    try:
+        # Устанавливаем следующее повторение через 365 дней
+        next_review = datetime.now() + timedelta(days=365)
+        
+        await db.execute("""
+            UPDATE reviews
+            SET next_review_at = ?, interval_days = 365, ease = 2.5, last_result = 'know'
+            WHERE word_id = ? AND user_id = ?
+        """, (next_review.isoformat(), word_id, user_id))
+        
+        await db.commit()
     finally:
         await db.close()
 
