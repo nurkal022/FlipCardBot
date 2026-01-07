@@ -7,7 +7,8 @@ from bot.services.srs import create_review
 from bot.db.models import add_word, word_exists, get_word, update_word
 from bot.keyboards.inline import (
     get_word_preview_keyboard,
-    get_test_offer_keyboard
+    get_test_offer_keyboard,
+    get_main_reply_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -60,9 +61,16 @@ async def handle_word_input(message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
     
+    # Проверяем, не является ли это кнопкой из Reply Keyboard
+    if text in ["📚 Повторить", "📊 Статистика", "ℹ️ Помощь", "📖 Мои слова"]:
+        return  # Эти кнопки обрабатываются в других handlers
+    
     # Валидация: не слишком длинное
     if len(text) > 100:
-        await message.answer("Отправь одно слово или короткую фразу (до 100 символов).")
+        await message.answer(
+            "Отправь одно слово или короткую фразу (до 100 символов).",
+            reply_markup=get_main_reply_keyboard()
+        )
         return
     
     # Показываем загрузку
@@ -85,11 +93,20 @@ async def handle_word_input(message: Message):
     except ValueError as e:
         logger.error(f"AI generation error: {e}")
         await loading_msg.edit_text(
-            f"Ошибка при генерации карточки: {str(e)}\nПопробуй ещё раз."
+            f"Ошибка при генерации карточки: {str(e)}\nПопробуй ещё раз.",
+            reply_markup=None
+        )
+        await message.answer(
+            "Используй кнопки ниже для навигации 👇",
+            reply_markup=get_main_reply_keyboard()
         )
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        await loading_msg.edit_text("Произошла ошибка. Попробуй позже.")
+        await loading_msg.edit_text("Произошла ошибка. Попробуй позже.", reply_markup=None)
+        await message.answer(
+            "Используй кнопки ниже для навигации 👇",
+            reply_markup=get_main_reply_keyboard()
+        )
 
 
 @router.callback_query(F.data == "word_add")
@@ -130,13 +147,23 @@ async def handle_word_add(callback: CallbackQuery):
         # Обновляем сообщение
         if is_new:
             message_text = f"✅ Слово <b>{card_data['term']}</b> добавлено!\n\nПроверим?"
+            await callback.message.edit_text(
+                message_text,
+                reply_markup=get_test_offer_keyboard()
+            )
+            # Отправляем Reply Keyboard отдельным сообщением
+            await callback.message.answer(
+                "Используй кнопки ниже для навигации 👇",
+                reply_markup=get_main_reply_keyboard()
+            )
         else:
             message_text = f"✅ Слово <b>{card_data['term']}</b> уже было добавлено.\n📊 Частота: <b>{frequency}</b> раз(а)"
-        
-        await callback.message.edit_text(
-            message_text,
-            reply_markup=get_test_offer_keyboard() if is_new else None
-        )
+            await callback.message.edit_text(message_text, reply_markup=None)
+            # Отправляем новое сообщение с reply клавиатурой
+            await callback.message.answer(
+                "Используй кнопки ниже для навигации 👇",
+                reply_markup=get_main_reply_keyboard()
+            )
         await callback.answer("Слово добавлено!" if is_new else f"Счётчик увеличен до {frequency}")
         
     except ValueError as e:
@@ -182,7 +209,11 @@ async def handle_word_cancel(callback: CallbackQuery):
     if user_id in _temp_cards:
         del _temp_cards[user_id]
     
-    await callback.message.edit_text("Отменено.")
+    await callback.message.edit_text("Отменено.", reply_markup=None)
+    await callback.message.answer(
+        "Используй кнопки ниже для навигации 👇",
+        reply_markup=get_main_reply_keyboard()
+    )
     await callback.answer()
 
 
@@ -218,6 +249,10 @@ async def handle_test_offer(callback: CallbackQuery):
         # Вызываем review handler
         await cmd_review(callback.message)
     else:
-        await callback.message.edit_text("Хорошо, повторим позже.")
+        await callback.message.edit_text("Хорошо, повторим позже.", reply_markup=None)
+        await callback.message.answer(
+            "Используй кнопки ниже для навигации 👇",
+            reply_markup=get_main_reply_keyboard()
+        )
         await callback.answer()
 

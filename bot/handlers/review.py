@@ -9,7 +9,8 @@ from bot.db.models import get_word_by_id, get_user_words, get_random_user_words
 from bot.keyboards.inline import (
     get_review_rating_keyboard,
     get_review_reveal_keyboard,
-    get_quiz_keyboard
+    get_quiz_keyboard,
+    get_main_reply_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,10 @@ async def cmd_review(message: Message):
     words = await get_words_for_review(user_id, limit=10)
     
     if not words:
-        await message.answer("Нет слов для повторения. Добавь слова, чтобы начать изучение!")
+        await message.answer(
+            "Нет слов для повторения. Добавь слова, чтобы начать изучение!",
+            reply_markup=get_main_reply_keyboard()
+        )
         return
     
     # Берём первое слово
@@ -257,10 +261,18 @@ async def handle_review_rating(callback: CallbackQuery):
             await callback.message.edit_text("Следующее слово...")
             await show_review_test(callback.message, word_dict, test_type)
         else:
-            await callback.message.edit_text("✅ Повторение завершено!")
+            await callback.message.edit_text("✅ Повторение завершено!", reply_markup=None)
+            await callback.message.answer(
+                "Используй кнопки ниже для навигации 👇",
+                reply_markup=get_main_reply_keyboard()
+            )
             del _active_tests[user_id]
     else:
-        await callback.message.edit_text("✅ Повторение завершено! Отлично поработал! 🎉")
+        await callback.message.edit_text("✅ Повторение завершено! Отлично поработал! 🎉", reply_markup=None)
+        await callback.message.answer(
+            "Используй кнопки ниже для навигации 👇",
+            reply_markup=get_main_reply_keyboard()
+        )
         del _active_tests[user_id]
     
     await callback.answer()
@@ -341,11 +353,25 @@ async def handle_quiz_answer(callback: CallbackQuery):
                 await callback.message.edit_text(f"{text}\n\nСледующее слово...")
                 await show_review_test(callback.message, word_dict, test_type)
             else:
-                await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено!")
+                await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено!", reply_markup=None)
+                await callback.message.answer(
+                    "Используй кнопки ниже для навигации 👇",
+                    reply_markup=get_main_reply_keyboard()
+                )
                 del _active_tests[user_id]
         else:
-            await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено! Отлично поработал! 🎉")
+            await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено! Отлично поработал! 🎉", reply_markup=None)
+            await callback.message.answer(
+                "Используй кнопки ниже для навигации 👇",
+                reply_markup=get_main_reply_keyboard()
+            )
             del _active_tests[user_id]
     
     await callback.answer()
+
+
+@router.message(F.text == "📚 Повторить")
+async def handle_review_button(message: Message):
+    """Обработка кнопки Повторить"""
+    await cmd_review(message)
 
