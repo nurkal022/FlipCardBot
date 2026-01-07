@@ -261,16 +261,14 @@ async def handle_review_rating(callback: CallbackQuery):
             await callback.message.edit_text("Следующее слово...")
             await show_review_test(callback.message, word_dict, test_type)
         else:
-            await callback.message.edit_text("✅ Повторение завершено!", reply_markup=None)
-            await callback.message.answer(
-                "Используй кнопки ниже для навигации 👇",
+            await callback.message.edit_text(
+                "✅ Повторение завершено!",
                 reply_markup=get_main_reply_keyboard()
             )
             del _active_tests[user_id]
     else:
-        await callback.message.edit_text("✅ Повторение завершено! Отлично поработал! 🎉", reply_markup=None)
-        await callback.message.answer(
-            "Используй кнопки ниже для навигации 👇",
+        await callback.message.edit_text(
+            "✅ Повторение завершено! Отлично поработал! 🎉",
             reply_markup=get_main_reply_keyboard()
         )
         del _active_tests[user_id]
@@ -353,16 +351,14 @@ async def handle_quiz_answer(callback: CallbackQuery):
                 await callback.message.edit_text(f"{text}\n\nСледующее слово...")
                 await show_review_test(callback.message, word_dict, test_type)
             else:
-                await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено!", reply_markup=None)
-                await callback.message.answer(
-                    "Используй кнопки ниже для навигации 👇",
+                await callback.message.edit_text(
+                    f"{text}\n\n✅ Повторение завершено!",
                     reply_markup=get_main_reply_keyboard()
                 )
                 del _active_tests[user_id]
         else:
-            await callback.message.edit_text(f"{text}\n\n✅ Повторение завершено! Отлично поработал! 🎉", reply_markup=None)
-            await callback.message.answer(
-                "Используй кнопки ниже для навигации 👇",
+            await callback.message.edit_text(
+                f"{text}\n\n✅ Повторение завершено! Отлично поработал! 🎉",
                 reply_markup=get_main_reply_keyboard()
             )
             del _active_tests[user_id]

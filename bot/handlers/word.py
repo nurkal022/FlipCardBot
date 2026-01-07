@@ -1,8 +1,11 @@
 import logging
+import httpx
+import tempfile
+import os
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InputFile
 from aiogram.filters import Command
-from bot.services.ai import generate_word_card
+from bot.services.dictionary import generate_word_card
 from bot.services.srs import create_review
 from bot.db.models import add_word, word_exists, get_word, update_word
 from bot.keyboards.inline import (
@@ -74,37 +77,86 @@ async def handle_word_input(message: Message):
         return
     
     # Показываем загрузку
-    loading_msg = await message.answer("Генерирую карточку...")
+    loading_msg = await message.answer("Ищу слово в словаре...")
     
     try:
-        # Генерируем карточку через ИИ
+        # Генерируем карточку через Dictionary API
         card_data = await generate_word_card(text)
         
         # Сохраняем во временное хранилище
         _temp_cards[user_id] = card_data
         
-        # Форматируем и показываем
+        # Форматируем текст карточки
         card_text = format_word_card(card_data)
-        await loading_msg.edit_text(
-            card_text,
-            reply_markup=get_word_preview_keyboard()
-        )
+        
+        # Отправляем изображение, если есть
+        if card_data.get('image_url'):
+            try:
+                await message.answer_photo(
+                    photo=card_data['image_url'],
+                    caption=card_text,
+                    reply_markup=get_word_preview_keyboard()
+                )
+                await loading_msg.delete()
+            except Exception as e:
+                logger.warning(f"Could not send image: {e}")
+                # Если не удалось отправить изображение, отправляем только текст
+                await loading_msg.edit_text(
+                    card_text,
+                    reply_markup=get_word_preview_keyboard()
+                )
+        else:
+            # Если нет изображения, отправляем только текст
+            await loading_msg.edit_text(
+                card_text,
+                reply_markup=get_word_preview_keyboard()
+            )
+        
+        # Отправляем аудио произношение как голосовое сообщение, если есть
+        if card_data.get('audio_url'):
+            try:
+                # Скачиваем аудио файл
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    audio_response = await client.get(card_data['audio_url'])
+                    audio_response.raise_for_status()
+                    
+                    # Сохраняем во временный файл
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+                        tmp_file.write(audio_response.content)
+                        tmp_path = tmp_file.name
+                    
+                    try:
+                        # Отправляем как голосовое сообщение
+                        with open(tmp_path, 'rb') as audio_file:
+                            await message.answer_voice(
+                                voice=InputFile(audio_file, filename="pronunciation.mp3"),
+                                caption="🔊 Произношение"
+                            )
+                    finally:
+                        # Удаляем временный файл
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Could not send audio as voice message: {e}")
+                # Fallback: пробуем отправить по URL (может не работать для voice)
+                try:
+                    await message.answer_voice(
+                        voice=card_data['audio_url'],
+                        caption="🔊 Произношение"
+                    )
+                except Exception as e2:
+                    logger.warning(f"Could not send audio by URL: {e2}")
         
     except ValueError as e:
-        logger.error(f"AI generation error: {e}")
+        logger.error(f"Dictionary API error: {e}")
         await loading_msg.edit_text(
-            f"Ошибка при генерации карточки: {str(e)}\nПопробуй ещё раз.",
-            reply_markup=None
-        )
-        await message.answer(
-            "Используй кнопки ниже для навигации 👇",
+            f"Ошибка при поиске слова: {str(e)}\nПопробуй ещё раз.",
             reply_markup=get_main_reply_keyboard()
         )
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        await loading_msg.edit_text("Произошла ошибка. Попробуй позже.", reply_markup=None)
-        await message.answer(
-            "Используй кнопки ниже для навигации 👇",
+        await loading_msg.edit_text(
+            "Произошла ошибка. Попробуй позже.",
             reply_markup=get_main_reply_keyboard()
         )
 
@@ -151,17 +203,10 @@ async def handle_word_add(callback: CallbackQuery):
                 message_text,
                 reply_markup=get_test_offer_keyboard()
             )
-            # Отправляем Reply Keyboard отдельным сообщением
-            await callback.message.answer(
-                "Используй кнопки ниже для навигации 👇",
-                reply_markup=get_main_reply_keyboard()
-            )
         else:
             message_text = f"✅ Слово <b>{card_data['term']}</b> уже было добавлено.\n📊 Частота: <b>{frequency}</b> раз(а)"
-            await callback.message.edit_text(message_text, reply_markup=None)
-            # Отправляем новое сообщение с reply клавиатурой
-            await callback.message.answer(
-                "Используй кнопки ниже для навигации 👇",
+            await callback.message.edit_text(
+                message_text,
                 reply_markup=get_main_reply_keyboard()
             )
         await callback.answer("Слово добавлено!" if is_new else f"Счётчик увеличен до {frequency}")
@@ -184,22 +229,76 @@ async def handle_more_examples(callback: CallbackQuery):
     
     term = _temp_cards[user_id]['term']
     
-    await callback.message.edit_text("Генерирую новые примеры...")
+    await callback.message.edit_text("Ищу новые данные...")
     
     try:
         card_data = await generate_word_card(term)
         _temp_cards[user_id] = card_data
         
         card_text = format_word_card(card_data)
-        await callback.message.edit_text(
-            card_text,
-            reply_markup=get_word_preview_keyboard()
-        )
-        await callback.answer("Новые примеры готовы!")
+        
+        # Обновляем сообщение с новыми данными
+        # Если есть изображение, отправляем новое сообщение с фото
+        if card_data.get('image_url'):
+            try:
+                await callback.message.answer_photo(
+                    photo=card_data['image_url'],
+                    caption=card_text,
+                    reply_markup=get_word_preview_keyboard()
+                )
+                await callback.message.delete()
+            except Exception as e:
+                logger.warning(f"Could not send image: {e}")
+                await callback.message.edit_text(
+                    card_text,
+                    reply_markup=get_word_preview_keyboard()
+                )
+        else:
+            await callback.message.edit_text(
+                card_text,
+                reply_markup=get_word_preview_keyboard()
+            )
+        
+        # Отправляем аудио как голосовое сообщение, если есть
+        if card_data.get('audio_url'):
+            try:
+                # Скачиваем аудио файл
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    audio_response = await client.get(card_data['audio_url'])
+                    audio_response.raise_for_status()
+                    
+                    # Сохраняем во временный файл
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+                        tmp_file.write(audio_response.content)
+                        tmp_path = tmp_file.name
+                    
+                    try:
+                        # Отправляем как голосовое сообщение
+                        with open(tmp_path, 'rb') as audio_file:
+                            await callback.message.answer_voice(
+                                voice=InputFile(audio_file, filename="pronunciation.mp3"),
+                                caption="🔊 Произношение"
+                            )
+                    finally:
+                        # Удаляем временный файл
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Could not send audio as voice message: {e}")
+                # Fallback: пробуем отправить по URL
+                try:
+                    await callback.message.answer_voice(
+                        voice=card_data['audio_url'],
+                        caption="🔊 Произношение"
+                    )
+                except Exception as e2:
+                    logger.warning(f"Could not send audio by URL: {e2}")
+        
+        await callback.answer("Новые данные готовы!")
         
     except Exception as e:
         logger.error(f"Error regenerating: {e}")
-        await callback.message.edit_text("Ошибка при генерации. Попробуй ещё раз.")
+        await callback.message.edit_text("Ошибка при получении данных. Попробуй ещё раз.")
 
 
 @router.callback_query(F.data == "word_cancel")
@@ -209,9 +308,8 @@ async def handle_word_cancel(callback: CallbackQuery):
     if user_id in _temp_cards:
         del _temp_cards[user_id]
     
-    await callback.message.edit_text("Отменено.", reply_markup=None)
-    await callback.message.answer(
-        "Используй кнопки ниже для навигации 👇",
+    await callback.message.edit_text(
+        "Отменено.",
         reply_markup=get_main_reply_keyboard()
     )
     await callback.answer()
@@ -249,9 +347,8 @@ async def handle_test_offer(callback: CallbackQuery):
         # Вызываем review handler
         await cmd_review(callback.message)
     else:
-        await callback.message.edit_text("Хорошо, повторим позже.", reply_markup=None)
-        await callback.message.answer(
-            "Используй кнопки ниже для навигации 👇",
+        await callback.message.edit_text(
+            "Хорошо, повторим позже.",
             reply_markup=get_main_reply_keyboard()
         )
         await callback.answer()
