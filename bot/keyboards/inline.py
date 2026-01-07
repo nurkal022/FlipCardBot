@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from typing import List, Optional
 
 
@@ -72,6 +72,85 @@ def get_test_offer_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="✅ Да", callback_data="test_start"),
             InlineKeyboardButton(text="⏭️ Позже", callback_data="test_later")
+        ]
+    ])
+
+
+def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Основная Reply клавиатура под строкой ввода"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="📚 Повторить"),
+                KeyboardButton(text="📖 Мои слова")
+            ],
+            [
+                KeyboardButton(text="📊 Статистика"),
+                KeyboardButton(text="ℹ️ Помощь")
+            ]
+        ],
+        resize_keyboard=True,
+        persistent=True
+    )
+
+
+def get_words_list_keyboard(words: list, page: int = 0, per_page: int = 10) -> InlineKeyboardMarkup:
+    """Клавиатура со списком слов (пагинация)"""
+    total_pages = (len(words) + per_page - 1) // per_page
+    start_idx = page * per_page
+    end_idx = start_idx + per_page
+    page_words = words[start_idx:end_idx]
+    
+    buttons = []
+    for word in page_words:
+        # Формируем текст кнопки: слово + краткий перевод
+        translations = ", ".join(word.translations_ru[:1]) if word.translations_ru else "—"
+        button_text = f"{word.term} — {translations}"
+        if len(button_text) > 40:
+            button_text = button_text[:37] + "..."
+        buttons.append([InlineKeyboardButton(
+            text=button_text,
+            callback_data=f"word_view_{word.id}"
+        )])
+    
+    # Навигация
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"words_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"words_page_{page+1}"))
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="words_back")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_word_detail_keyboard(word_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура для детального просмотра слова с действиями"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Изучено", callback_data=f"word_learned_{word_id}"),
+            InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"word_edit_{word_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"word_delete_{word_id}"),
+            InlineKeyboardButton(text="🔄 Регенерировать", callback_data=f"word_regen_{word_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 К списку", callback_data="words_list")
+        ]
+    ])
+
+
+def get_word_delete_confirm_keyboard(word_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"word_delete_confirm_{word_id}"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data=f"word_view_{word_id}")
         ]
     ])
 
